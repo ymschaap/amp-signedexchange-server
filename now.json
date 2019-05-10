@@ -1,0 +1,19 @@
+{
+    "name": "60fps",
+    "version": 2,
+    "builds": [
+        { "src": "**/*.go", "use": "@now/go@canary" },
+        { "src": "static/*.html", "use": "@now/static" }
+    ],
+    "routes": [
+        { "src": "^/amppkg/(.*)", "dest": "main.go" },
+        { "src": "^/priv/doc/(.*)", "dest": "main.go" },
+        {
+            "src": "^/(.*)",
+            "dest": "static/index.html",
+            "headers": {
+                "Vary": "Accept, AMP-Cache-Transform"
+            }
+        }
+    ]
+}
