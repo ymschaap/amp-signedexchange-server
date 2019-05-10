@@ -1,5 +1,5 @@
 {
-    "name": "60fps",
+    "name": "fps60",
     "version": 2,
     "builds": [
         { "src": "**/*.go", "use": "@now/go@canary" },
