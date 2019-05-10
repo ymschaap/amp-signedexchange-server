@@ -1,6 +1,4 @@
-// +build main
-
-package main
+package fps60
 
 import (
 	"flag"
@@ -9,8 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"path"
-	"time"
+    "path"
 
 	"github.com/WICG/webpackage/go/signedexchange"
 	"github.com/julienschmidt/httprouter"
@@ -19,7 +16,6 @@ import (
 	"github.com/ampproject/amppackager/packager/certcache"
 	"github.com/ampproject/amppackager/packager/signer"
 	"github.com/ampproject/amppackager/packager/util"
-	"github.com/ampproject/amppackager/packager/validitymap"
 	"github.com/ampproject/amppackager/packager/rtv"
 )
 
@@ -29,22 +25,13 @@ var flagDevelopment = flag.Bool("development", false, "True if this is a develop
 // Prints errors returned by pkg/errors with stack traces.
 func die(err interface{}) { log.Fatalf("%+v", err) }
 
-type logIntercept struct {
-	handler http.Handler
-}
+// needed for local
+//func main() {
+//    Fps60()
+//}
 
-func (this logIntercept) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	// TODO(twifkak): Adopt whatever the standard format is nowadays.
-	log.Println("Serving", req.URL, "to", req.RemoteAddr)
-	this.handler.ServeHTTP(resp, req)
-	// TODO(twifkak): Get status code from resp. This requires making a ResponseWriter wrapper.
-	// TODO(twifkak): Separate the typical weblog from the detailed error log.
-}
+func Handle(w http.ResponseWriter, r *http.Request) {
 
-// Exposes an HTTP server. Don't run this on the open internet, for at least two reasons:
-//  - It exposes an API that allows people to sign any URL as any other URL.
-//  - It is in cleartext.
-func main() {
 	flag.Parse()
 	if *flagConfig == "" {
 		die("must specify --config")
@@ -84,12 +71,6 @@ func main() {
 	if err != nil {
 		die(errors.Wrapf(err, "parsing %s", config.KeyFile))
 	}
-	// TODO(twifkak): Verify that key matches certs[0].
-
-	validityMap, err := validitymap.New()
-	if err != nil {
-		die(errors.Wrap(err, "building validity map"))
-	}
 
 	certCache := certcache.New(certs, config.OCSPCache)
 	if err = certCache.Init(nil); err != nil {
@@ -99,6 +80,7 @@ func main() {
 	if err != nil {
 		die(errors.Wrap(err, "initializing rtv cache"))
 	}
+
 	rtvCache.StartCron()
 	defer rtvCache.StopCron()
 
@@ -116,46 +98,14 @@ func main() {
 		die(errors.Wrap(err, "building packager"))
 	}
 
-	// TODO(twifkak): Make log output configurable.
-	mux := httprouter.New()
-	mux.RedirectTrailingSlash = false
-	mux.RedirectFixedPath = false
-	mux.GET(util.ValidityMapPath, validityMap.ServeHTTP)
-	mux.GET("/priv/doc", packager.ServeHTTP)
-	mux.GET("/priv/doc/*signURL", packager.ServeHTTP)
-	mux.GET(path.Join(util.CertURLPrefix, ":certName"), certCache.ServeHTTP)
-	addr := ""
-	if config.LocalOnly {
-		addr = "localhost"
-	}
-	addr += fmt.Sprint(":", config.Port)
-	server := http.Server{
-		Addr: addr,
-		// Don't use DefaultServeMux, per
-		// https://blog.cloudflare.com/exposing-go-on-the-internet/.
-		Handler:           logIntercept{mux},
-		ReadTimeout:       10 * time.Second,
-		ReadHeaderTimeout: 5 * time.Second,
-		// If needing to stream the response, disable WriteTimeout and
-		// use TimeoutHandler instead, per
-		// https://blog.cloudflare.com/the-complete-guide-to-golang-net-http-timeouts/.
-		WriteTimeout: 60 * time.Second,
-		// Needs Go 1.8.
-		IdleTimeout: 120 * time.Second,
-		// TODO(twifkak): Specify ErrorLog?
-	}
+    log.Println("Cert available:", path.Join("/amppkg/cert", util.CertName(certs[0])))
 
-	// TODO(twifkak): Add monitoring (e.g. per the above Cloudflare blog).
+    router := httprouter.New()
+    router.GET("/priv/doc/*signURL", packager.ServeHTTP)
+    router.GET(path.Join("/amppkg/cert", util.CertName(certs[0])), certCache.ServeHTTP)
 
+    log.Fatal(http.ListenAndServe(":8080", router))
 	log.Println("Serving on port", config.Port)
 
-	// TCP keep-alive timeout on ListenAndServe is 3 minutes. To shorten,
-	// follow the above Cloudflare blog.
 
-	if *flagDevelopment {
-		log.Println("WARNING: Running in development, using SXG key for TLS. This won't work in production.")
-		log.Fatal(server.ListenAndServeTLS(config.CertFile, config.KeyFile))
-	} else {
-		log.Fatal(server.ListenAndServe())
-	}
 }
